@@ -1177,6 +1177,11 @@ impl BackendState {
                 };
 
                 if let Some(instance) = self.instance_state.write().instances.get_mut(id) {
+                    if cfg!(windows) {
+                        self.file_watching.write().unwatch_subdirectories_of_instance(id);
+                        instance.mark_all_dirty();
+                    }
+
                     #[cfg(windows)]
                     if let Ok(target) = junction::get_target(&instance.root_path) {
                         if let Err(err) = std::fs::rename(&target, &path) {
@@ -1227,7 +1232,7 @@ impl BackendState {
 
                     if let Err(err) = std::fs::rename(&instance.root_path, &path) {
                         log::error!("Unable to move instance files: {err:?}");
-                        self.send.send_error("Unable to move instance files: {err}");
+                        self.send.send_error(format!("Unable to move instance files: {err}"));
                         return;
                     }
 
