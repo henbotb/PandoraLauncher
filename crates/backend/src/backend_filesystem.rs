@@ -245,7 +245,11 @@ impl BackendState {
                 {
                     let old_name = instance.name;
                     instance.on_root_renamed(to);
-                    instance.rewatch_directories(&mut *self.file_watching.write());
+
+                    let mut file_watching = self.file_watching.write();
+                    instance.rewatch_directories(&mut *file_watching);
+                    file_watching.watch_filesystem(to.clone(), WatchTarget::InstanceDir { id });
+                    drop(file_watching);
 
                     self.send.send_info(format!("Instance '{}' renamed to '{}'", old_name, instance.name));
                     self.send.send(instance.create_modify_message());
