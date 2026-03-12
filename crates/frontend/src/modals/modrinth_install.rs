@@ -688,7 +688,8 @@ impl InstallDialog {
                                         path: bridge::install::ContentInstallPath::Automatic,
                                         download: ContentDownload::Modrinth {
                                             project_id: dep.project_id.clone().unwrap(),
-                                            version_id: dep.version_id.clone()
+                                            version_id: dep.version_id.clone(),
+                                            install_dependencies: true,
                                         },
                                         content_source: ContentSource::ModrinthProject { project_id: dep.project_id.clone().unwrap() },
                                     })

@@ -609,6 +609,7 @@ impl InstallDialog {
                                         path: bridge::install::ContentInstallPath::Automatic,
                                         download: ContentDownload::Curseforge {
                                             project_id: dep.mod_id,
+                                            install_dependencies: true,
                                         },
                                         content_source: ContentSource::CurseforgeProject { project_id: dep.mod_id },
                                     })

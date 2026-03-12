@@ -847,6 +847,7 @@ dependencies = [
  "enum-map",
  "enumset",
  "indexmap 2.13.0",
+ "parking_lot",
  "relative-path",
  "rustc-hash 2.1.1",
  "sanitize-filename",

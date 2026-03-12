@@ -231,7 +231,7 @@ impl BackendState {
                     }
                 };
 
-                if modal_action.error.read().unwrap().is_some() {
+                if modal_action.error.read().is_some() {
                     modal_action.set_finished();
                     self.send.send(MessageToFrontend::Refresh);
                     return;

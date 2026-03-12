@@ -694,7 +694,8 @@ impl PrimaryAction {
                             path: bridge::install::ContentInstallPath::Automatic,
                             download: ContentDownload::Modrinth {
                                 project_id: project_id.clone(),
-                                version_id: None
+                                version_id: None,
+                                install_dependencies: true,
                             },
                             content_source: ContentSource::ModrinthProject {
                                 project_id: project_id.clone()
