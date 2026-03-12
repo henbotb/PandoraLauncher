@@ -624,11 +624,16 @@ impl InstallDialog {
                                 return;
                             };
 
+                            let Some(download_url) = selected_file.download_url.clone() else {
+                                window.push_notification((NotificationType::Error, ts!("instance.content.install.no_third_party_downloads")), cx);
+                                return;
+                            };
+
                             files.push(ContentInstallFile {
                                 replace_old: None,
                                 path: bridge::install::ContentInstallPath::Safe(path),
                                 download: ContentDownload::Url {
-                                    url: selected_file.download_url.clone(),
+                                    url: download_url,
                                     sha1: sha1,
                                     size: selected_file.file_length as usize,
                                 },

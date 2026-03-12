@@ -100,6 +100,25 @@ pub enum ContentType {
     ResourcePack,
 }
 
+impl ContentType {
+    pub fn is_strict_minecraft_version(&self) -> bool {
+        match self {
+            Self::ResourcePack => false,
+            _ => true,
+        }
+    }
+
+    pub fn is_strict_loader(&self) -> bool {
+        match self {
+            Self::Fabric => true,
+            Self::LegacyForge => true,
+            Self::Forge => true,
+            Self::NeoForge => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentUpdateStatus {
     Unknown,

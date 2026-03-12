@@ -43,6 +43,8 @@ pub enum ContentInstallError {
     NoFilename,
     #[error("Content already installed")]
     ContentAlreadyInstalled,
+    #[error("The mod author has blocked downloads from third-party launchers")]
+    NoThirdPartyDownloads,
 }
 
 struct InstallFromContentLibrary {
@@ -275,36 +277,73 @@ impl BackendState {
                 tracker.add_total(1);
                 modal_action.trackers.push(tracker.clone());
 
+                let mut is_wrong_version = false;
+                let mut is_wrong_loader = false;
+
                 let version = if let Some(version_id) = version_id {
                     let version = self.meta.fetch(&ModrinthVersionMetadataItem(version_id.clone())).await?;
+
+                    tracker.add_count(1);
+                    tracker.set_finished(ProgressTrackerFinishType::Normal);
+                    drop(tracker);
+
                     Some(version)
                 } else {
-                    let versions = self.meta.fetch(&ModrinthProjectVersionsMetadataItem(&ModrinthProjectVersionsRequest {
-                        project_id: project_id.clone(),
-                        game_versions: content.version_hint.clone().map(|v| [v].into()),
-                        loaders: None,
-                    })).await?;
-
                     let modrinth_loader = content.loader_hint.as_modrinth_loader();
-                    let version = if modrinth_loader != ModrinthLoader::Unknown {
-                        versions.0.iter()
-                            .find(|version| if let Some(loaders) = &version.loaders {
-                                loaders.contains(&modrinth_loader)
-                            } else {
-                                false
-                            })
-                            .or(versions.0.first())
+                    let loaders = if modrinth_loader != ModrinthLoader::Unknown {
+                        Some(Arc::from([modrinth_loader]))
                     } else {
-                        versions.0.first()
+                        None
                     };
 
-                    version.map(|v| Arc::new(v.clone()))
-                };
-                drop(permit);
+                    let mut result = self.meta.fetch(&ModrinthProjectVersionsMetadataItem(&ModrinthProjectVersionsRequest {
+                        project_id: project_id.clone(),
+                        game_versions: content.version_hint.clone().map(|v| [v].into()),
+                        loaders,
+                    })).await;
 
-                tracker.add_count(1);
-                tracker.set_finished(ProgressTrackerFinishType::Normal);
-                drop(tracker);
+                    tracker.add_count(1);
+
+                    let mut not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
+                        result.as_ref().ok().map(|r| r.0.is_empty()).unwrap_or(false);
+                    if not_found && modrinth_loader != ModrinthLoader::Unknown {
+                        tracker.add_total(1);
+
+                        result = self.meta.fetch(&ModrinthProjectVersionsMetadataItem(&ModrinthProjectVersionsRequest {
+                            project_id: project_id.clone(),
+                            game_versions: content.version_hint.clone().map(|v| [v].into()),
+                            loaders: None,
+                        })).await;
+                        not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
+                            result.as_ref().ok().map(|r| r.0.is_empty()).unwrap_or(false);
+                        is_wrong_loader = true;
+
+                        tracker.add_count(1);
+                    }
+                    if not_found && content.version_hint.is_some() {
+                        tracker.add_total(1);
+
+                        result = self.meta.fetch(&ModrinthProjectVersionsMetadataItem(&ModrinthProjectVersionsRequest {
+                            project_id: project_id.clone(),
+                            game_versions: None,
+                            loaders: None,
+                        })).await;
+                        not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
+                            result.as_ref().ok().map(|r| r.0.is_empty()).unwrap_or(false);
+                        is_wrong_loader = true;
+                        is_wrong_version = true;
+
+                        tracker.add_count(1);
+                    }
+
+                    tracker.set_finished(ProgressTrackerFinishType::from_err(not_found || result.is_err()));
+                    drop(tracker);
+
+                    result?.0.first().map(|v| Arc::new(v.clone()))
+                };
+
+
+                drop(permit);
 
                 let Some(version) = version else {
                     return Err(ContentInstallError::UnableToFindVersion);
@@ -334,6 +373,27 @@ impl BackendState {
 
                 let (path, hash, mod_summary) = self.download_file_into_library(&modal_action,
                     (&safe_filename).into(), url, sha1, size, &semaphore).await?;
+
+                if is_wrong_version {
+                    let is_strict_minecraft_version = if let Some(mod_summary) = &mod_summary {
+                        mod_summary.extra.is_strict_minecraft_version()
+                    } else {
+                        true
+                    };
+                    if is_strict_minecraft_version {
+                        return Err(ContentInstallError::UnableToFindVersion);
+                    }
+                }
+                if is_wrong_loader {
+                    let is_strict_loader = if let Some(mod_summary) = &mod_summary {
+                        mod_summary.extra.is_strict_loader()
+                    } else {
+                        true
+                    };
+                    if is_strict_loader {
+                        return Err(ContentInstallError::UnableToFindVersion);
+                    }
+                }
 
                 let install_path = match &content_file.path {
                     ContentInstallPath::Raw(path) => path.clone(),
@@ -419,24 +479,66 @@ impl BackendState {
                 tracker.add_total(1);
                 modal_action.trackers.push(tracker.clone());
 
-                let versions = self.meta.fetch(&CurseforgeGetModFilesMetadataItem(&CurseforgeGetModFilesRequest {
+                let mod_loader_type = match content.loader_hint {
+                    Loader::Vanilla => None,
+                    Loader::Fabric => Some(CurseforgeModLoaderType::Fabric as u32),
+                    Loader::Forge => Some(CurseforgeModLoaderType::Forge as u32),
+                    Loader::NeoForge => Some(CurseforgeModLoaderType::NeoForge as u32),
+                    Loader::Unknown => None,
+                };
+
+                let mut is_wrong_version = false;
+                let mut is_wrong_loader = false;
+
+                let mut result = self.meta.fetch(&CurseforgeGetModFilesMetadataItem(&CurseforgeGetModFilesRequest {
                     mod_id: project_id,
                     game_version: content.version_hint.clone().map(|v| v.into()),
-                    mod_loader_type: match content.loader_hint {
-                        Loader::Vanilla => None,
-                        Loader::Fabric => Some(CurseforgeModLoaderType::Fabric as u32),
-                        Loader::Forge => Some(CurseforgeModLoaderType::Forge as u32),
-                        Loader::NeoForge => Some(CurseforgeModLoaderType::NeoForge as u32),
-                        Loader::Unknown => None,
-                    },
+                    mod_loader_type,
                     page_size: Some(1)
-                })).await?;
-                drop(permit);
+                })).await;
 
                 tracker.add_count(1);
-                tracker.set_finished(ProgressTrackerFinishType::Normal);
+
+                let mut not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
+                    result.as_ref().ok().map(|r| r.data.is_empty()).unwrap_or(false);
+                if not_found && mod_loader_type.is_some() {
+                    tracker.add_total(1);
+
+                    result = self.meta.fetch(&CurseforgeGetModFilesMetadataItem(&CurseforgeGetModFilesRequest {
+                        mod_id: project_id,
+                        game_version: content.version_hint.clone().map(|v| v.into()),
+                        mod_loader_type: None,
+                        page_size: Some(1)
+                    })).await;
+                    not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
+                        result.as_ref().ok().map(|r| r.data.is_empty()).unwrap_or(false);
+                    is_wrong_loader = true;
+
+                    tracker.add_count(1);
+                }
+                if not_found && content.version_hint.is_some() {
+                    tracker.add_total(1);
+
+                    result = self.meta.fetch(&CurseforgeGetModFilesMetadataItem(&CurseforgeGetModFilesRequest {
+                        mod_id: project_id,
+                        game_version: None,
+                        mod_loader_type: None,
+                        page_size: Some(1)
+                    })).await;
+                    not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
+                        result.as_ref().ok().map(|r| r.data.is_empty()).unwrap_or(false);
+                    is_wrong_loader = true;
+                    is_wrong_version = true;
+
+                    tracker.add_count(1);
+                }
+
+                tracker.set_finished(ProgressTrackerFinishType::from_err(not_found || result.is_err()));
                 drop(tracker);
 
+                drop(permit);
+
+                let versions = result?;
                 let Some(file) = versions.data.first() else {
                     return Err(ContentInstallError::UnableToFindVersion);
                 };
@@ -449,13 +551,16 @@ impl BackendState {
                     ));
                 }
 
-                let url = &file.download_url;
                 let sha1 = file.hashes.iter()
                     .find(|hash| hash.algo == 1).map(|hash| &hash.value);
                 let size = file.file_length as usize;
 
+                let Some(url) = file.download_url.as_ref() else {
+                    return Err(ContentInstallError::NoThirdPartyDownloads);
+                };
+
                 let Some(sha1) = sha1 else {
-                    return Err(ContentInstallError::MissingHash)
+                    return Err(ContentInstallError::MissingHash);
                 };
 
                 let Some(safe_filename) = SafePath::new(&file.file_name) else {
@@ -464,6 +569,27 @@ impl BackendState {
 
                 let (path, hash, mod_summary) = self.download_file_into_library(&modal_action,
                     (&safe_filename).into(), url, sha1, size, &semaphore).await?;
+
+                if is_wrong_version {
+                    let is_strict_minecraft_version = if let Some(mod_summary) = &mod_summary {
+                        mod_summary.extra.is_strict_minecraft_version()
+                    } else {
+                        true
+                    };
+                    if is_strict_minecraft_version {
+                        return Err(ContentInstallError::UnableToFindVersion);
+                    }
+                }
+                if is_wrong_loader {
+                    let is_strict_loader = if let Some(mod_summary) = &mod_summary {
+                        mod_summary.extra.is_strict_loader()
+                    } else {
+                        true
+                    };
+                    if is_strict_loader {
+                        return Err(ContentInstallError::UnableToFindVersion);
+                    }
+                }
 
                 let install_path = match &content_file.path {
                     ContentInstallPath::Raw(path) => path.clone(),

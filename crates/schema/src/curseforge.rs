@@ -108,7 +108,7 @@ pub struct CurseforgeFile {
     pub release_type: u32,
     pub file_length: u64,
     pub hashes: Arc<[CurseforgeFileHash]>,
-    pub download_url: Arc<str>,
+    pub download_url: Option<Arc<str>>,
     pub dependencies: Arc<[CurseforgeFileDependency]>,
 }
 

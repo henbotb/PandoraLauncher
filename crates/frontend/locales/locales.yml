@@ -577,6 +577,8 @@ instance:
         en: Invalid/dangerous filename
       missing_sha1_hash:
         en: Missing sha1 hash
+      no_third_party_downloads:
+        en: The mod author has blocked downloads from third-party launchers
       select_mods:
         en: Select mods to install
       new_instance_with:

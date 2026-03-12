@@ -747,6 +747,12 @@ impl BackendState {
                                 return;
                             };
 
+                            let Some(url) = file.download_url.clone() else {
+                                self.send.send_error("Can't update mod in instance, author has blocked third party downloads");
+                                modal_action.set_finished();
+                                return;
+                            };
+
                             ContentInstall {
                                 target: InstallTarget::Instance(id),
                                 loader_hint: loader,
@@ -755,7 +761,7 @@ impl BackendState {
                                     replace_old: Some(mod_summary.path.clone()),
                                     path: bridge::install::ContentInstallPath::Raw(path.into()),
                                     download: ContentDownload::Url {
-                                        url: file.download_url.clone(),
+                                        url,
                                         sha1: sha1.clone(),
                                         size: file.file_length as usize,
                                     },
