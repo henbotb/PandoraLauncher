@@ -437,7 +437,7 @@ impl Render for ModrinthProjectPage {
                                                 move |_, _, cx| { cx.open_url(&url); }
                                             }))
                                         .child(v_flex().p_1().max_w_full().min_w_0()
-                                            .child(div().text_sm().font_bold().child(SharedString::new(img.title.as_deref().unwrap_or_default())))
+                                            .child(div().text_sm().child(SharedString::new(img.title.as_deref().unwrap_or_default())))
                                         )
                                 })).into_any_element()
                         } else {
@@ -452,7 +452,7 @@ impl Render for ModrinthProjectPage {
                 .child(h_flex().gap_4()
                     .child(icon.rounded_lg().size_24().min_w_24().min_h_24())
                     .child(v_flex().w_full().line_height(relative(1.1)).gap_2()
-                        .child(div().text_xl().overflow_hidden().font_bold().child(project.title.as_deref().unwrap_or(ts!("instance.content.unnamed").as_str()).to_string()))
+                        .child(div().text_xl().overflow_hidden().child(project.title.as_deref().unwrap_or(ts!("instance.content.unnamed").as_str()).to_string()))
                         .child(div().max_w(rems(40.0)).min_w_0().child(project.description.as_deref().unwrap_or("").to_string()))
                         .child(info_bar))
                 )

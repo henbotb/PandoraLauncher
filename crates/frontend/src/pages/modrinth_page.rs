@@ -461,7 +461,7 @@ impl ModrinthSearchPage {
 
                 let (env_icon, env_name) = env_display(client_side, server_side);
 
-                let environment = h_flex().gap_1().font_bold().child(env_icon).child(env_name);
+                let environment = h_flex().gap_1().child(env_icon).child(env_name);
 
                 let categories = hit.display_categories.iter().flat_map(|categories| {
                     categories.iter().filter_map(|category| {
