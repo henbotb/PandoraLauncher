@@ -11,6 +11,7 @@ pub mod player_model_widget;
 pub mod path_label;
 pub mod progress_bar;
 pub mod readonly_text_field;
+pub mod resize_panel;
 pub mod responsive_grid;
 pub mod search_helper;
 pub mod shrinking_text;

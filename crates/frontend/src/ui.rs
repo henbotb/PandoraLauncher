@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bridge::{instance::InstanceID, message::MessageToBackend};
 use gpui::{prelude::*, *};
 use gpui_component::{
-    ActiveTheme as _, Disableable, Icon, InteractiveElementExt, WindowExt, button::{Button, ButtonVariants}, h_flex, input::{Input, InputState}, notification::{Notification, NotificationType}, resizable::{ResizablePanelEvent, ResizableState, h_resizable, resizable_panel}, scroll::ScrollableElement, tooltip::Tooltip, v_flex
+    ActiveTheme as _, Disableable, Icon, InteractiveElementExt, WindowExt, button::{Button, ButtonVariants}, h_flex, input::{Input, InputState}, notification::{Notification, NotificationType}, scroll::ScrollableElement, tooltip::Tooltip, v_flex
 };
 use rand::Rng;
 use rustc_hash::FxHashMap;
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    component::{menu::{MenuGroup, MenuGroupItem}, page_path::PagePath, shrinking_text::ShrinkingText, title_bar::TitleBar}, entity::{
+    component::{menu::{MenuGroup, MenuGroupItem}, page_path::PagePath, resize_panel::{ResizePanel, ResizePanelState}, shrinking_text::ShrinkingText, title_bar::TitleBar}, entity::{
         DataEntities, instance::{InstanceAddedEvent, InstanceEntries, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}
     }, icon::PandoraIcon, interface_config::InterfaceConfig, modals, pages::{curseforge_page::CurseforgeSearchPage, import::ImportPage, instance::instance_page::InstancePage, instances_page::InstancesPage, modrinth_page::ModrinthSearchPage, modrinth_project_page::ModrinthProjectPage, page::Page, skins_page::SkinsPage, syncing_page::SyncingPage}, png_render_cache, ts
 };
@@ -21,8 +21,7 @@ pub struct LauncherUI {
     data: DataEntities,
     page: LauncherPage,
     pub update: Option<UpdatePrompt>,
-    sidebar_state: Entity<ResizableState>,
-    default_sidebar_width: f32,
+    sidebar_state: ResizePanelState,
     recent_instances: heapless::Vec<(InstanceID, SharedString), 3>,
     previous_pages: FxHashMap<PageType, LauncherPage>,
     _instance_added_subscription: Subscription,
@@ -143,19 +142,6 @@ impl LauncherPage {
 
 impl LauncherUI {
     pub fn new(data: &DataEntities, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let sidebar_state = cx.new(|_| ResizableState::default());
-
-        cx.subscribe::<_, ResizablePanelEvent>(&sidebar_state, |this, resizable, event, cx| {
-            let ResizablePanelEvent::Resized = event;
-
-            let sizes = resizable.read(cx).sizes();
-            if sizes.len() > 0 {
-                let width = sizes[0].to_f64() as f32;
-                InterfaceConfig::get_mut(cx).sidebar_width = width;
-                this.default_sidebar_width = width;
-            }
-        }).detach();
-
         let recent_instances = data
             .instances
             .read(cx)
@@ -215,6 +201,11 @@ impl LauncherUI {
             default_sidebar_width = 150.0;
         }
 
+        let sidebar_state = ResizePanelState::new(px(default_sidebar_width), px(150.0), px(225.0))
+            .on_resize(|width, _, cx| {
+                InterfaceConfig::get_mut(cx).sidebar_width = width.as_f32();
+            });
+
         let main_page = config.main_page.clone();
 
         // If main_page failed to deserialize, also reset the path
@@ -238,7 +229,6 @@ impl LauncherUI {
             page,
             update: None,
             sidebar_state,
-            default_sidebar_width,
             recent_instances,
             previous_pages: FxHashMap::default(),
             _instance_added_subscription,
@@ -609,9 +599,11 @@ impl Render for LauncherUI {
             .child(Icon::new(PandoraIcon::Pandora).size_8().min_w_8().min_h_8())
             .child(ts!("common.app_name"));
         let footer_buttons = h_flex().child(settings_button).child(bug_report_button);
-        let footer = v_flex().pb_2().px_2().items_center().w_full().child(footer_buttons).child(account_button);
+        let footer = v_flex().pb_2().px_2().items_center().min_w_full().max_w_full().w_full().child(footer_buttons).child(account_button);
         let sidebar = v_flex()
             .size_full()
+            .min_size_full()
+            .max_size_full()
             .bg(cx.theme().sidebar)
             .text_color(cx.theme().sidebar_foreground)
             .when(cfg!(target_os = "macos"), |this| {
@@ -632,10 +624,7 @@ impl Render for LauncherUI {
                 .overflow_y_scrollbar())
             .child(footer);
 
-        h_resizable("container")
-            .with_state(&self.sidebar_state)
-            .child(resizable_panel().size(px(self.default_sidebar_width)).size_range(px(150.)..px(225.)).child(sidebar))
-            .child(self.page.clone().render(&self, window, cx).into_any_element())
+        ResizePanel::new(&self.sidebar_state, sidebar, self.page.clone().render(&self, window, cx))
     }
 }
 
