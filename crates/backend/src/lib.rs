@@ -245,7 +245,7 @@ pub fn copy_content_recursive(from: &Path, to: &Path, strict: bool, progress: &d
 
             } else if file_type.is_dir() {
                 #[cfg(windows)]
-                if let Some(target) = junction::get_target(&path) {
+                if let Ok(target) = junction::get_target(&path) {
                     if let Ok(internal) = target.strip_prefix(&from) {
                         internal_junctions.push((relative.to_path_buf(), internal.to_path_buf()));
                     } else {
