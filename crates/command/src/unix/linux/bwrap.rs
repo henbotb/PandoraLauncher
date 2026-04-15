@@ -13,10 +13,6 @@ const DEV_BINDS: &[&str] = &[
     "/dev/mali",
     "/dev/mali0",
     "/dev/umplock",
-    // Graphics (nvidia)
-    "/dev/nvidiactl",
-    "/dev/nvidia0",
-    "/dev/nvidia",
     // Graphics (adreno)
     "/dev/kgsl-3d0",
     "/dev/ion",
@@ -223,6 +219,20 @@ pub fn spawn(mut command: PandoraCommand, sandbox: PandoraSandbox, context: &mut
 
     for dev_bind in DEV_BINDS {
         builder.bind_if_exists(BindType::Device, Path::new(*dev_bind));
+    }
+    if let Ok(read_dir) = std::fs::read_dir("/dev") {
+        for entry in read_dir {
+            let Ok(entry) = entry else {
+                break;
+            };
+            let path = entry.path();
+            let Some(file_name) = path.file_name() else {
+                continue;
+            };
+            if file_name.as_encoded_bytes().starts_with(b"nvidia") {
+                builder.bind_if_exists(BindType::Device, &path);
+            }
+        }
     }
 
     for file_ro in SYSTEM_FILES_RO {
