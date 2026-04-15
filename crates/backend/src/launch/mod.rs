@@ -2148,9 +2148,6 @@ impl LaunchContext {
         if !java_path_parent_parent.join("lib").is_dir() {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "java root folder must contain 'lib'"));
         }
-        if !java_path_parent_parent.join("conf").is_dir() {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "java root folder must contain 'conf'"));
-        }
 
 
         wrapping_command.push(self.java_path.clone().into_os_string().into());
