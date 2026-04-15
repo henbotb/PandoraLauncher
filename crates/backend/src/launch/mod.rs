@@ -2247,6 +2247,13 @@ impl LaunchContext {
         command.arg("com.moulberry.pandora.LaunchWrapper");
 
         let mut child = if self.configuration.sandbox {
+            #[cfg(target_os = "linux")]
+            if !command::is_command_available("bwrap") {
+                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing 'bwrap' command for sandbox"));
+            } else if !command::is_command_available("xdg-dbus-proxy") {
+                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing 'xdg-dbus-proxy' command for sandbox"));
+            }
+
             let mut allow_read = vec![
                 self.libraries_dir.clone(),
                 self.log_configs_dir.clone(),

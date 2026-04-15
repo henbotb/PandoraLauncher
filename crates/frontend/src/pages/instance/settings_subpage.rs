@@ -37,6 +37,7 @@ pub struct InstanceSettingsSubpage {
     loader_versions_state: TypelessFrontendMetadataResult,
     loader_version_select_state: Entity<SelectState<SearchableVec<&'static str>>>,
     disable_file_syncing: bool,
+    sandbox_available: bool,
     sandbox: bool,
 
     memory_override_enabled: bool,
@@ -91,6 +92,12 @@ impl InstanceSettingsSubpage {
         let account = entry.configuration.preferred_account;
         let disable_file_syncing = entry.configuration.disable_file_syncing;
         let sandbox = entry.configuration.sandbox;
+
+        let sandbox_available = if cfg!(target_os = "linux") {
+            command::is_command_available("bwrap") && command::is_command_available("xdg-dbus-proxy")
+        } else {
+            true
+        };
 
         let memory = entry.configuration.memory.unwrap_or_default();
         let wrapper_command = entry.configuration.wrapper_command.clone().unwrap_or_default();
@@ -218,6 +225,7 @@ impl InstanceSettingsSubpage {
             loader_select_state,
             loader_version_select_state,
             disable_file_syncing,
+            sandbox_available,
             sandbox,
             memory_override_enabled: memory.enabled,
             memory_min_input_state,
@@ -816,7 +824,16 @@ impl Render for InstanceSettingsSubpage {
             ))
             .child(crate::labelled(
                 ts!("instance.security.label"),
-                Checkbox::new("sandbox").label(ts!("instance.security.sandbox")).checked(self.sandbox).on_click(cx.listener(|page, value, _, _| {
+                Checkbox::new("sandbox")
+                    .label(ts!("instance.security.sandbox"))
+                    .disabled(!self.sandbox && !self.sandbox_available)
+                    .tooltip(if self.sandbox_available {
+                        "Sandbox the instance, preventing access to files and systems it shouldn't have access to"
+                    } else {
+                        "Cannot sandbox: missing bwrap and xdg-dbus-proxy commands"
+                    })
+                    .checked(self.sandbox)
+                    .on_click(cx.listener(|page, value, _, _| {
                     page.sandbox = *value;
                     page.backend_handle.send(MessageToBackend::SetInstanceSandboxing {
                         id: page.instance_id,
