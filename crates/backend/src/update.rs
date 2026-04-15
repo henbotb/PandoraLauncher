@@ -283,11 +283,17 @@ fn write_new_exe(old_exe: PathBuf, new_exe: PathBuf, data: &[u8], dirs: &Launche
         return Err("Error while writing new executable, see logs for more details".into());
     }
 
-    let result = move_new_exe_into(old_exe, new_exe, &new_exe_data);
-
-    _ = std::fs::remove_file(new_exe_data);
-
-    result
+    #[cfg(unix)]
+    {
+        let result = move_new_exe_into(old_exe, new_exe, &new_exe_data);
+        _ = std::fs::remove_file(new_exe_data);
+        return result;
+    }
+    #[cfg(windows)]
+    {
+        launch_update_helper(old_exe, new_exe, &new_exe_data);
+        return Ok(());
+    }
 }
 
 fn try_canonicalize(path: &Path) -> Option<PathBuf> {
@@ -309,6 +315,57 @@ fn try_canonicalize(path: &Path) -> Option<PathBuf> {
     }
 }
 
+// Windows doesn't like replacing currently running executables, so we spawn a powershell script that waits for the program to exit
+#[cfg(windows)]
+fn launch_update_helper(old_exe_path: PathBuf, new_exe_path: PathBuf, new_exe_data: &Path) {
+    let mut ps_arguments: Vec<&OsStr> = Vec::new();
+
+    let id_string = format!("{}", std::process::id());
+
+    ps_arguments.push(OsStr::new("Wait-Process"));
+    ps_arguments.push(OsStr::new("-Id"));
+    ps_arguments.push(OsStr::new(&id_string));
+    ps_arguments.push(OsStr::new("-ErrorAction"));
+    ps_arguments.push(OsStr::new("SilentlyContinue;"));
+
+    ps_arguments.push(OsStr::new("if"));
+    ps_arguments.push(OsStr::new("($?)"));
+    ps_arguments.push(OsStr::new("{"));
+
+    ps_arguments.push(OsStr::new("Move-Item"));
+    ps_arguments.push(OsStr::new("-Path"));
+    ps_arguments.push(new_exe_data.as_os_str());
+    ps_arguments.push(OsStr::new("-Destination"));
+    ps_arguments.push(new_exe_path.as_os_str());
+
+    if old_exe_path == new_exe_path {
+        ps_arguments.push(OsStr::new("-Force"));
+    } else {
+        ps_arguments.push(OsStr::new("-Force;"));
+        ps_arguments.push(OsStr::new("if"));
+        ps_arguments.push(OsStr::new("($?)"));
+        ps_arguments.push(OsStr::new("{"));
+        ps_arguments.push(OsStr::new("Remove-Item"));
+        ps_arguments.push(OsStr::new("-Path"));
+        ps_arguments.push(old_exe_path.as_os_str());
+        ps_arguments.push(OsStr::new("-Force"));
+        ps_arguments.push(OsStr::new("}"));
+    }
+
+    ps_arguments.push(OsStr::new("}"));
+
+    let ps_command = crate::join_windows_shell_os(&ps_arguments);
+
+    log::info!("Running with powershell.exe: {}", ps_command.to_string_lossy());
+
+    std::process::Command::new("powershell.exe")
+        .arg("-Command")
+        .arg(ps_command)
+        .spawn()
+        .unwrap();
+}
+
+#[cfg(unix)]
 fn move_new_exe_into(old_exe_path: PathBuf, new_exe_path: PathBuf, new_exe_data: &Path) -> Result<(), String> {
     let old_exe_path = try_canonicalize(&old_exe_path).unwrap_or(old_exe_path);
     let new_exe_path = try_canonicalize(&new_exe_path).unwrap_or(new_exe_path);
@@ -317,62 +374,29 @@ fn move_new_exe_into(old_exe_path: PathBuf, new_exe_path: PathBuf, new_exe_data:
         if err.kind() == std::io::ErrorKind::PermissionDenied {
             log::info!("Permission denied while trying to update executable, need to elevate");
 
-            #[cfg(unix)]
-            let result = {
-                let mut command = OsString::new();
-                command.push("mv -f '");
-                command.push(new_exe_data.as_os_str());
-                command.push("' '");
-                command.push(new_exe_path.as_os_str());
-                command.push("' && chmod +x '");
-                command.push(new_exe_path.as_os_str());
+            let mut command = OsString::new();
+            command.push("mv -f '");
+            command.push(new_exe_data.as_os_str());
+            command.push("' '");
+            command.push(new_exe_path.as_os_str());
+            command.push("' && chmod +x '");
+            command.push(new_exe_path.as_os_str());
 
-                if old_exe_path == new_exe_path {
-                    command.push("'");
-                } else {
-                    command.push("' && rm -f '");
-                    command.push(old_exe_path.as_os_str());
-                    command.push("'");
-                }
+            if old_exe_path == new_exe_path {
+                command.push("'");
+            } else {
+                command.push("' && rm -f '");
+                command.push(old_exe_path.as_os_str());
+                command.push("'");
+            }
 
-                // todo: replace runas with workspace command crate
-                if cfg!(target_os = "linux") {
-                    log::info!("Running with pkexec: {}", command.to_string_lossy());
-                    std::process::Command::new("pkexec").arg("sh").arg("-c").arg(command).status()
-                } else {
-                    log::info!("Running with runas: {}", command.to_string_lossy());
-                    runas::Command::new("sh").arg("-c").arg(command).gui(true).status()
-                }
-            };
-
-            #[cfg(target_os = "windows")]
-            let result = {
-                let mut ps_arguments: Vec<&OsStr> = Vec::new();
-                ps_arguments.push(OsStr::new("Move-Item"));
-                ps_arguments.push(OsStr::new("-Path"));
-                ps_arguments.push(new_exe_data.as_os_str());
-                ps_arguments.push(OsStr::new("-Destination"));
-                ps_arguments.push(new_exe_path.as_os_str());
-
-                if old_exe_path == new_exe_path {
-                    ps_arguments.push(OsStr::new("-Force"));
-                } else {
-                    ps_arguments.push(OsStr::new("-Force;"));
-                    ps_arguments.push(OsStr::new("if"));
-                    ps_arguments.push(OsStr::new("($?)"));
-                    ps_arguments.push(OsStr::new("{"));
-                    ps_arguments.push(OsStr::new("Remove-Item"));
-                    ps_arguments.push(OsStr::new("-Path"));
-                    ps_arguments.push(old_exe_path.as_os_str());
-                    ps_arguments.push(OsStr::new("-Force"));
-                    ps_arguments.push(OsStr::new("}"));
-                }
-
-                let command = crate::join_windows_shell_os(&ps_arguments);
-
-                log::info!("Running with powershell.exe: {}", command.to_string_lossy());
-
-                std::io::Result::Ok(run_admin_powershell(&command))
+            // todo: replace runas with workspace command crate
+            let result = if cfg!(target_os = "linux") {
+                log::info!("Running with pkexec: {}", command.to_string_lossy());
+                std::process::Command::new("pkexec").arg("sh").arg("-c").arg(command).status()
+            } else {
+                log::info!("Running with runas: {}", command.to_string_lossy());
+                runas::Command::new("sh").arg("-c").arg(command).gui(true).status()
             };
 
             match result {
@@ -397,11 +421,8 @@ fn move_new_exe_into(old_exe_path: PathBuf, new_exe_path: PathBuf, new_exe_data:
         _ = std::fs::remove_file(&old_exe_path);
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        _ = std::fs::set_permissions(&new_exe_path, std::fs::Permissions::from_mode(0o755));
-    }
+    use std::os::unix::fs::PermissionsExt;
+    _ = std::fs::set_permissions(&new_exe_path, std::fs::Permissions::from_mode(0o755));
 
     Ok(())
 }
