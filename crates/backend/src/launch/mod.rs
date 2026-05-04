@@ -2212,6 +2212,12 @@ impl LaunchContext {
 
         self.classpath.push(self.launch_wrapper_path.to_path_buf());
 
+        // Force stdout/stderr to use UTF-8
+        command.arg("-Dstdout.encoding=UTF-8");
+        command.arg("-Dsun.stdout.encoding=UTF-8");
+        command.arg("-Dstderr.encoding=UTF-8");
+        command.arg("-Dsun.stderr.encoding=UTF-8");
+
         if let Some(arguments) = &version_info.arguments {
             self.process_arguments(&arguments.jvm, &mut |arg| {
                 command.arg(arg.to_os_string());
@@ -2248,6 +2254,14 @@ impl LaunchContext {
         }
 
         command.arg("com.moulberry.pandora.LaunchWrapper");
+
+        if let Some(path) = std::env::var_os("PATH") {
+            let new_paths = std::env::split_paths(&path)
+                .chain([self.natives_dir.clone()]);
+            if let Ok(new_path_arg) = std::env::join_paths(new_paths) {
+                command.env("PATH", new_path_arg);
+            }
+        }
 
         let mut child = if self.configuration.sandbox {
             #[cfg(target_os = "linux")]

@@ -15,7 +15,7 @@ use crate::{
     account::Account, game_output::GameOutputLogLevel, import::{ImportFromOtherLauncherJob, OtherLauncher}, install::ContentInstall, instance::{
         InstanceContentID, InstanceContentSummary, InstanceID, InstancePlaytime, InstanceServerSummary, InstanceStatus,
         InstanceWorldSummary,
-    }, keep_alive::{KeepAlive, KeepAliveHandle}, meta::{MetadataRequest, MetadataResult}, modal_action::ModalAction,
+    }, keep_alive::KeepAliveHandle, meta::{MetadataRequest, MetadataResult}, modal_action::ModalAction,
 };
 
 #[derive(Debug)]
@@ -23,6 +23,42 @@ use crate::{
 pub struct BackendConfigWithPassword {
     pub config: BackendConfig,
     pub proxy_password: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    Zip,
+    Modrinth,
+    Curseforge,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportModrinthOptions {
+    pub name: Arc<str>,
+    pub version: Arc<str>,
+    pub summary: Option<Arc<str>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportCurseforgeOptions {
+    pub name: Arc<str>,
+    pub version: Arc<str>,
+    pub author: Option<Arc<str>>,
+    pub recommended_ram: Option<u32>,
+    pub optional_files: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportOptions {
+    pub include_saves: bool,
+    pub include_mods: bool,
+    pub include_resourcepacks: bool,
+    pub include_configs: bool,
+    pub include_logs: bool,
+    pub include_cache: bool,
+    pub include_synced: bool,
+    pub modrinth: ExportModrinthOptions,
+    pub curseforge: ExportCurseforgeOptions,
 }
 
 pub enum MessageToBackend {
@@ -38,6 +74,13 @@ pub enum MessageToBackend {
     },
     DeleteInstance {
         id: InstanceID,
+    },
+    ExportInstance {
+        id: InstanceID,
+        format: ExportFormat,
+        options: ExportOptions,
+        output: PathBuf,
+        modal_action: ModalAction,
     },
     RenameInstance {
         id: InstanceID,
@@ -312,14 +355,7 @@ pub enum MessageToFrontend {
         resource_packs: Arc<[InstanceContentSummary]>,
     },
     CreateGameOutputWindow {
-        id: usize,
-        keep_alive: KeepAlive,
-    },
-    AddGameOutput {
-        id: usize,
-        time: i64,
-        level: GameOutputLogLevel,
-        text: Arc<[Arc<str>]>,
+        receiver: tokio::sync::mpsc::UnboundedReceiver<GameOutputMsg>
     },
     AddNotification {
         notification_type: BridgeNotificationType,
@@ -465,4 +501,10 @@ pub enum UrlOrFile {
     File {
         path: PathBuf,
     }
+}
+
+pub struct GameOutputMsg {
+    pub time: i64,
+    pub level: GameOutputLogLevel,
+    pub text: Arc<[Arc<str>]>,
 }

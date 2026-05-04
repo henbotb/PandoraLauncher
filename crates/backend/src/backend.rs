@@ -992,7 +992,9 @@ impl BackendState {
                     } else if let Some(filename) = dest_path.file_name() {
                         let filename = format!(".pandora.{filename}");
                         let hidden_dest_path = mod_dir.join(filename);
-                        let _ = std::fs::hard_link(path, hidden_dest_path);
+                        if let Err(err) = crate::hard_link_or_copy(&path, &hidden_dest_path) {
+                            log::error!("Failed to install modpack mod to {:?}: {err}", hidden_dest_path);
+                        }
                     }
                 } else {
                     let dest_path = dest_path.to_path(&dot_minecraft_path);
@@ -1034,7 +1036,9 @@ impl BackendState {
                         } else if let Some(filename) = rel_path.file_name() {
                             let filename = format!(".pandora.{filename}");
                             let hidden_dest_path = mod_dir.join(filename);
-                            let _ = std::fs::hard_link(path, hidden_dest_path);
+                            if let Err(err) = crate::hard_link_or_copy(&path, &hidden_dest_path) {
+                                log::error!("Failed to install modpack override mod to {:?}: {err}", hidden_dest_path);
+                            }
                         }
                     } else {
                         let dest_path = rel_path.to_path(&dot_minecraft_path);
@@ -1167,13 +1171,11 @@ impl BackendState {
     }
 
     pub async fn get_login_info(&self, modal_action: &ModalAction, instance_account: Option<Uuid>) -> Option<MinecraftLoginInfo> {
-        let selected_account = {
+        let selected_account_with_name = {
             let mut account_info = self.account_info.write();
             let account_info = account_info.get();
 
-            let mut selected_account = instance_account.or(account_info.selected_account);
-
-            if let Some(uuid) = selected_account {
+            if let Some(uuid) = instance_account.or(account_info.selected_account) {
                 if let Some(account) = account_info.accounts.get(&uuid) {
                     if account.offline {
                         return Some(MinecraftLoginInfo {
@@ -1182,15 +1184,26 @@ impl BackendState {
                             access_token: None
                         })
                     }
+                    Some((uuid, account.username.clone()))
                 } else {
-                    selected_account = None;
+                    None
                 }
+            } else {
+                None
             }
-
-            selected_account
         };
 
+        let selected_account = selected_account_with_name.as_ref().map(|v| v.0);
         let Some((profile, access_token)) = self.login_flow(modal_action, selected_account).await else {
+            if let Some((uuid, username)) = selected_account_with_name {
+                self.send.send_error("Unable to log into Minecraft account, using offline mode...");
+                return Some(MinecraftLoginInfo {
+                    uuid,
+                    username,
+                    access_token: None,
+                })
+            }
+
             return None;
         };
 
