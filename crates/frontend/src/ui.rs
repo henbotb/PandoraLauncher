@@ -24,6 +24,7 @@ pub struct LauncherUI {
     page_history_forwards: Vec<(PageType, Arc<[PageType]>)>,
     previous_pages: FxHashMap<PageType, LauncherPage>,
     pending_page: Option<(PageType, Arc<[PageType]>)>,
+    backend_handle: bridge::handle::BackendHandle,
     _instance_added_subscription: Subscription,
     _instance_modified_subscription: Subscription,
     _instance_removed_subscription: Subscription,
@@ -275,6 +276,7 @@ impl LauncherUI {
             page_history_forwards: Vec::new(),
             previous_pages: FxHashMap::default(),
             pending_page,
+            backend_handle: data.backend_handle.clone(),
             _instance_added_subscription,
             _instance_modified_subscription,
             _instance_removed_subscription,
@@ -504,7 +506,10 @@ impl Render for LauncherUI {
                             this.icon(icon)
                         })
                         .active(active)
-                        .on_click(cx.listener(move |launcher, _, window, cx| {
+                        .on_click(cx.listener(move |launcher, event: &ClickEvent, window, cx| {
+                            if event.click_count() == 2 {
+                                launcher.backend_handle.send(bridge::message::MessageToBackend::StartInstanceByName { name: name.clone().into(), quick_play: None })
+                            } 
                             launcher.switch_page(PageType::InstancePage { name: name.clone() }, &[PageType::Instances], window, cx);
                         }));
                     recent_instances_group = recent_instances_group.child(item);
